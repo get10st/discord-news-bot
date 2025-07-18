@@ -4,10 +4,8 @@ import numpy as np
 from deepface import DeepFace
 import os
 
-# タイトル
 st.title("おかずAIプロトタイプ🍑")
 
-# 顔ベクトルロード
 with open('embeddings/actresses_embeddings.pkl', 'rb') as f:
     embeddings = pickle.load(f)
 
@@ -32,7 +30,6 @@ if uploaded_file is not None:
                 closest_filename = filename
 
         st.success(f"✅ 一番似ているのは: {closest_filename}")
-        st.write(f"🧭 類似度: {round(100 - min_dist, 2)}%")  # 簡易スコア
+        st.write(f"🧭 類似度: {round(100 - min_dist, 2)}%")
     except:
         st.error("❌ 顔が検出できませんでした。別の画像を試してください。")
-
