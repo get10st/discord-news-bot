@@ -66,3 +66,10 @@ async def toyokeizai_task():
             last_posted_date_toyo = today_str
         else:
             await channel.send("❌ 東洋経済のニュースが取得できませんでした")
+import asyncio
+
+async def main():
+    async with bot:
+        await bot.start(TOKEN)
+
+asyncio.run(main())
