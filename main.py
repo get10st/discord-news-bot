@@ -188,8 +188,5 @@ async def arxiv_task():
 
 
 # 起動
-async def main():
-    async with bot:
-        await bot.start(TOKEN)
-
-asyncio.run(main())
+if __name__ == "__main__":
+    bot.run(TOKEN)
