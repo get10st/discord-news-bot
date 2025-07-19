@@ -14,6 +14,9 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 
 last_link_nhk = None  # NHKの重複防止用
 last_posted_date_toyo = None  # 東洋経済の重複防止用（日付）
+last_posted_date_bbc = None
+last_posted_date_cnn = None
+
 
 @bot.event
 async def on_ready():
@@ -21,6 +24,8 @@ async def on_ready():
     nhk_task.start()
     toyokeizai_task.start()
     bbc_task.start()
+    cnn_task.start()
+
 
 
 @tasks.loop(minutes=15)
@@ -94,6 +99,31 @@ async def bbc_task():
             last_posted_date_bbc = today_str
         else:
             await channel.send("❌ BBCのニュースが取得できませんでした")
+
+            @tasks.loop(minutes=1)
+async def cnn_task():
+    global last_posted_date_cnn
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")
+    today_str = now.strftime("%Y-%m-%d")
+
+    if current_time == "17:00" and last_posted_date_cnn != today_str:
+        channel = bot.get_channel(CHANNEL_ID)
+        if not channel:
+            print("❌ CNN: チャンネルが見つかりません")
+            return
+
+        feed = feedparser.parse("http://rss.cnn.com/rss/edition.rss")
+        if feed.entries:
+            articles = feed.entries[:5]
+            message = "🗞 **CNN 最新記事 (17:00)**\n\n"
+            for entry in articles:
+                message += f"• [{entry.title}]({entry.link})\n"
+            await channel.send(message)
+            last_posted_date_cnn = today_str
+        else:
+            await channel.send("❌ CNNのニュースが取得できませんでした")
+
 
 import asyncio
 
