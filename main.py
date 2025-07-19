@@ -30,9 +30,17 @@ async def on_ready():
     reuters_task.start()
 
 # NHK
-@tasks.loop(minutes=15)
+@tasks.loop(minutes=60)  # ← 1時間ごとに変更
 async def nhk_task():
     global last_link_nhk
+    now = datetime.now()
+    hour = now.hour
+
+    # 投稿時間を10〜21時に限定（10 <= hour <= 21）
+    if hour < 10 or hour > 21:
+        print("🕙 NHK: 投稿時間外です。スキップします。")
+        return
+
     channel = bot.get_channel(CHANNEL_ID)
     if not channel:
         print("❌ NHK: チャンネルが見つかりません")
@@ -43,6 +51,7 @@ async def nhk_task():
         latest = feed.entries[0]
         title = latest.title
         link = latest.link
+
         if link != last_link_nhk:
             await channel.send(f"📰 **{title}**\n{link}")
             last_link_nhk = link
