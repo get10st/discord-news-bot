@@ -4,6 +4,7 @@ import feedparser
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+import asyncio
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -12,11 +13,12 @@ CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="/", intents=intents)
 
-last_link_nhk = None  # NHKの重複防止用
-last_posted_date_toyo = None  # 東洋経済の重複防止用（日付）
+# 重複防止用
+last_link_nhk = None
+last_posted_date_toyo = None
 last_posted_date_bbc = None
 last_posted_date_cnn = None
-
+last_posted_date_reuters = None
 
 @bot.event
 async def on_ready():
@@ -25,9 +27,9 @@ async def on_ready():
     toyokeizai_task.start()
     bbc_task.start()
     cnn_task.start()
+    reuters_task.start()
 
-
-
+# NHK
 @tasks.loop(minutes=15)
 async def nhk_task():
     global last_link_nhk
@@ -41,7 +43,6 @@ async def nhk_task():
         latest = feed.entries[0]
         title = latest.title
         link = latest.link
-
         if link != last_link_nhk:
             await channel.send(f"📰 **{title}**\n{link}")
             last_link_nhk = link
@@ -50,6 +51,7 @@ async def nhk_task():
     else:
         await channel.send("❌ NHKのニュースが取得できませんでした")
 
+# 東洋経済（09:00）
 @tasks.loop(minutes=1)
 async def toyokeizai_task():
     global last_posted_date_toyo
@@ -74,8 +76,7 @@ async def toyokeizai_task():
         else:
             await channel.send("❌ 東洋経済のニュースが取得できませんでした")
 
-            last_posted_date_bbc = None  # BBCの重複防止（日付）
-
+# BBC（13:00）
 @tasks.loop(minutes=1)
 async def bbc_task():
     global last_posted_date_bbc
@@ -83,7 +84,7 @@ async def bbc_task():
     current_time = now.strftime("%H:%M")
     today_str = now.strftime("%Y-%m-%d")
 
-    if last_posted_date_bbc != today_str:
+    if current_time == "13:00" and last_posted_date_bbc != today_str:
         channel = bot.get_channel(CHANNEL_ID)
         if not channel:
             print("❌ BBC: チャンネルが見つかりません")
@@ -100,7 +101,8 @@ async def bbc_task():
         else:
             await channel.send("❌ BBCのニュースが取得できませんでした")
 
-            @tasks.loop(minutes=1)
+# CNN（17:00）
+@tasks.loop(minutes=1)
 async def cnn_task():
     global last_posted_date_cnn
     now = datetime.now()
@@ -124,9 +126,32 @@ async def cnn_task():
         else:
             await channel.send("❌ CNNのニュースが取得できませんでした")
 
+# ロイター（21:00）
+@tasks.loop(minutes=1)
+async def reuters_task():
+    global last_posted_date_reuters
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")
+    today_str = now.strftime("%Y-%m-%d")
 
-import asyncio
+    if current_time == "21:00" and last_posted_date_reuters != today_str:
+        channel = bot.get_channel(CHANNEL_ID)
+        if not channel:
+            print("❌ ロイター: チャンネルが見つかりません")
+            return
 
+        feed = feedparser.parse("http://feeds.reuters.com/reuters/topNews")
+        if feed.entries:
+            articles = feed.entries[:5]
+            message = "🗞 **ロイター 最新記事 (21:00)**\n\n"
+            for entry in articles:
+                message += f"• [{entry.title}]({entry.link})\n"
+            await channel.send(message)
+            last_posted_date_reuters = today_str
+        else:
+            await channel.send("❌ ロイターのニュースが取得できませんでした")
+
+# 起動
 async def main():
     async with bot:
         await bot.start(TOKEN)
