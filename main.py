@@ -17,7 +17,8 @@ intents.message_content = True  # メッセージ取得（必要に応じて）
 class MyBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix="/", intents=intents)
-        # self.tree は self.tree ですでに存在しているので不要
+        # self.tree は内部で既に作られているので何も追加しなくてよい
+
 
 
     async def setup_hook(self):
