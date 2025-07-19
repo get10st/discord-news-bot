@@ -4,4 +4,8 @@ beautifulsoup4
 feedparser
 python-dotenv
 flask
+discord.py
+python-dotenv
+discord.py>=2.3.2
+python-dotenv
 
