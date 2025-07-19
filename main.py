@@ -20,6 +20,8 @@ async def on_ready():
     print(f"✅ ログイン成功: {bot.user}")
     nhk_task.start()
     toyokeizai_task.start()
+    bbc_task.start()
+
 
 @tasks.loop(minutes=15)
 async def nhk_task():
@@ -66,6 +68,33 @@ async def toyokeizai_task():
             last_posted_date_toyo = today_str
         else:
             await channel.send("❌ 東洋経済のニュースが取得できませんでした")
+
+            last_posted_date_bbc = None  # BBCの重複防止（日付）
+
+@tasks.loop(minutes=1)
+async def bbc_task():
+    global last_posted_date_bbc
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")
+    today_str = now.strftime("%Y-%m-%d")
+
+    if last_posted_date_bbc != today_str:
+        channel = bot.get_channel(CHANNEL_ID)
+        if not channel:
+            print("❌ BBC: チャンネルが見つかりません")
+            return
+
+        feed = feedparser.parse("http://feeds.bbci.co.uk/news/world/rss.xml")
+        if feed.entries:
+            articles = feed.entries[:5]
+            message = "🌍 **BBC World 最新記事 (13:00)**\n\n"
+            for entry in articles:
+                message += f"• [{entry.title}]({entry.link})\n"
+            await channel.send(message)
+            last_posted_date_bbc = today_str
+        else:
+            await channel.send("❌ BBCのニュースが取得できませんでした")
+
 import asyncio
 
 async def main():
