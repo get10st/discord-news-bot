@@ -16,8 +16,9 @@ intents.message_content = True  # メッセージ取得（必要に応じて）
 # Bot クラス
 class MyBot(commands.Bot):
     def __init__(self):
-        super().__init__(command_prefix="!", intents=intents)
-        self.tree = app_commands.CommandTree(self)
+        super().__init__(command_prefix="/", intents=intents)
+        # self.tree は self.tree ですでに存在しているので不要
+
 
     async def setup_hook(self):
         await self.tree.sync()
