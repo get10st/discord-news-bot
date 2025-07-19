@@ -19,6 +19,7 @@ last_posted_date_toyo = None
 last_posted_date_bbc = None
 last_posted_date_cnn = None
 last_posted_date_reuters = None
+last_posted_date_arxiv = None  # arXiv（AI）の重複防止用
 
 @bot.event
 async def on_ready():
@@ -28,6 +29,8 @@ async def on_ready():
     bbc_task.start()
     cnn_task.start()
     reuters_task.start()
+    arxiv_task.start()  # ←これを忘れず追加！
+
 
 # NHK
 @tasks.loop(minutes=60)  # ← 1時間ごとに変更
@@ -159,6 +162,30 @@ async def reuters_task():
             last_posted_date_reuters = today_str
         else:
             await channel.send("❌ ロイターのニュースが取得できませんでした")
+@tasks.loop(minutes=1)
+async def arxiv_task():
+    global last_posted_date_arxiv
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")
+    today_str = now.strftime("%Y-%m-%d")
+
+    if current_time == "18:00" and last_posted_date_arxiv != today_str:
+        channel = bot.get_channel(CHANNEL_ID)
+        if not channel:
+            print("❌ arXiv: チャンネルが見つかりません")
+            return
+
+        feed = feedparser.parse("http://export.arxiv.org/rss/cs.AI")
+        if feed.entries:
+            articles = feed.entries[:5]
+            message = "📚 **arXiv AI論文 最新記事 (18:00)**\n\n"
+            for entry in articles:
+                message += f"• [{entry.title}]({entry.link})\n"
+            await channel.send(message)
+            last_posted_date_arxiv = today_str
+        else:
+            await channel.send("❌ arXivから論文が取得できませんでした")
+
 
 # 起動
 async def main():
