@@ -1,109 +1,124 @@
-import os
-import random
-import time
-import feedparser
 import discord
-from discord.ext import commands, tasks
+import feedparser
+import requests
+from bs4 import BeautifulSoup
+import asyncio
+import os
 from datetime import datetime
+from discord.ext import commands, tasks
 from flask import Flask
 from threading import Thread
 
-# --- 環境変数 ---
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+# ==== 環境変数 ====
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
-# --- Discord Bot準備 ---
-intents = discord.Intents.default()
-bot = commands.Bot(command_prefix="!", intents=intents)
-
-# --- Flask（Railway維持用）---
+# ==== Flaskアプリ（Railway用）====
 app = Flask(__name__)
+
 @app.route('/')
 def home():
-    return "Bot is running!"
-Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+    return "Bot is running."
 
-# --- 投稿済みURL追跡 ---
-posted_urls = set()
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
 
-# --- RSS取得（リトライ付き）---
-def fetch_rss(url, retries=3, delay=5):
-    for _ in range(retries):
-        try:
-            feed = feedparser.parse(f"{url}?nocache={random.randint(0,99999)}")
-            if feed.bozo == 0 and feed.entries:
-                return feed
-        except Exception as e:
-            print(f"⚠️ RSS取得失敗: {e}")
-        time.sleep(delay)
-    return None
+Thread(target=run_flask).start()
 
-# --- 投稿関数 ---
-async def post_feed(feed_url, name, max_posts=5):
-    feed = fetch_rss(feed_url)
-    if not feed:
-        print(f"❌ {name}: RSS取得失敗")
-        return
+# ==== Discord Bot設定 ====
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
+# ==== ニュース取得関数 ====
+
+async def post_news(title, url, prefix, channel):
+    await channel.send(f"{prefix} {title}\n{url}")
+
+def fetch_rss(url):
+    try:
+        feed = feedparser.parse(url)
+        if feed.entries:
+            return feed.entries[0].title, feed.entries[0].link
+        else:
+            return None
+    except Exception as e:
+        return None
+
+def fetch_arxiv():
+    url = "http://export.arxiv.org/rss/cs.AI"
+    return fetch_rss(url)
+
+def fetch_reuters():
+    url = "http://feeds.reuters.com/reuters/topNews"
+    return fetch_rss(url)
+
+def fetch_bbc():
+    url = "http://feeds.bbci.co.uk/news/world/rss.xml"
+    return fetch_rss(url)
+
+def fetch_cnn():
+    url = "http://rss.cnn.com/rss/edition.rss"
+    return fetch_rss(url)
+
+def fetch_nhk():
+    try:
+        nhk_url = "https://www3.nhk.or.jp/news/"
+        res = requests.get(nhk_url, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        headline = soup.select_one("div.content--list-main a")
+        if headline:
+            title = headline.text.strip()
+            link = "https://www3.nhk.or.jp" + headline.get("href")
+            return title, link
+    except Exception:
+        return None
+
+def fetch_toyokeizai():
+    try:
+        url = "https://toyokeizai.net/list/feed/rss"
+        return fetch_rss(url)
+    except Exception:
+        return None
+
+# ==== タスクループ ====
+@tasks.loop(minutes=60)
+async def fetch_and_post_news():
+    await bot.wait_until_ready()
+    now = datetime.now().strftime("%H:%M")
     channel = bot.get_channel(CHANNEL_ID)
-    new_count = 0
-    for entry in feed.entries:
-        if entry.link in posted_urls:
-            continue
-        msg = f"📰 [{name}] {entry.title}\n{entry.link}"
-        await channel.send(msg)
-        posted_urls.add(entry.link)
-        new_count += 1
-        await asyncio.sleep(1)
-        if new_count >= max_posts:
-            break
 
-# --- スケジュール別 tasks ---
-@tasks.loop(minutes=10)
-async def nhk_loop():
-    now = datetime.now().hour
-    if 22 <= now or now < 10:
-        return
-    await post_feed("https://www3.nhk.or.jp/rss/news/cat0.xml", "NHK", max_posts=3)
+    sources = [
+        ("🧠 arxiv", fetch_arxiv),
+        ("📰 reuters", fetch_reuters),
+        ("🌍 BBC", fetch_bbc),
+        ("🗞 CNN", fetch_cnn),
+        ("📺 NHK", fetch_nhk),
+        ("📊 toyokeizai", fetch_toyokeizai),
+    ]
 
-@tasks.loop(hours=1)
-async def toyokeizai_loop():
-    await post_feed("https://toyokeizai.net/rss/all.xml", "東洋経済", max_posts=5)
+    for label, fetcher in sources:
+        try:
+            news = fetcher()
+            if news:
+                await post_news(f"{label} 最新記事（{now}）", news[1], f"• {news[0]}", channel)
+            else:
+                await channel.send(f"❌ {label}のニュース取得失敗")
+        except Exception as e:
+            await channel.send(f"❌ {label}の取得中にエラーが発生しました: {str(e)}")
 
-@tasks.loop(minutes=1)
-async def bbc_loop():
-    now = datetime.now()
-    if now.hour == 13 and now.minute % 10 == 0:
-        await post_feed("http://feeds.bbci.co.uk/news/rss.xml", "BBC", max_posts=5)
-
-@tasks.loop(minutes=1)
-async def cnn_loop():
-    now = datetime.now()
-    if now.hour == 17 and now.minute % 10 == 0:
-        await post_feed("http://rss.cnn.com/rss/edition.rss", "CNN", max_posts=5)
-
-@tasks.loop(minutes=1)
-async def reuters_loop():
-    now = datetime.now()
-    if now.hour == 21 and now.minute % 10 == 0:
-        await post_feed("http://feeds.reuters.com/reuters/topNews", "ロイター", max_posts=5)
-
-@tasks.loop(minutes=30)
-async def arxiv_loop():
-    now = datetime.now()
-    if now.hour in [9, 21]:
-        await post_feed("http://export.arxiv.org/rss/cs.AI", "arXiv(AI)", max_posts=3)
-
-# --- 起動時処理 ---
+# ==== 起動イベント ====
 @bot.event
 async def on_ready():
-    print(f"✅ ログイン成功: {bot.user}")
-    nhk_loop.start()
-    toyokeizai_loop.start()
-    bbc_loop.start()
-    cnn_loop.start()
-    reuters_loop.start()
-    arxiv_loop.start()
+    print(f"Logged in as {bot.user}")
+    fetch_and_post_news.start()
+
+# ==== 実行 ====
+if TOKEN and CHANNEL_ID:
+    bot.run(TOKEN)
+else:
+    print("環境変数 DISCORD_BOT_TOKEN または DISCORD_CHANNEL_ID が設定されていません")
+
 
 
 
