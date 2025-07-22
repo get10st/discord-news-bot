@@ -2,6 +2,7 @@ import discord
 import feedparser
 import requests
 from bs4 import BeautifulSoup
+import asyncio
 import os
 from datetime import datetime
 from discord.ext import commands, tasks
@@ -10,9 +11,9 @@ from threading import Thread
 
 # ==== 環境変数 ====
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", 0))
+CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
 
-# ==== Flaskアプリ（Railwayの起動維持用）====
+# ==== Flaskアプリ（Railway用）====
 app = Flask(__name__)
 
 @app.route('/')
@@ -29,27 +30,40 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# ==== ニュース投稿関数 ====
+# ==== ニュース取得関数 ====
+
 async def post_news(title, url, prefix, channel):
     await channel.send(f"{prefix} {title}\n{url}")
 
 def fetch_rss(url):
     try:
         feed = feedparser.parse(url)
-        for entry in feed.entries:
-            if hasattr(entry, "title") and hasattr(entry, "link"):
-                return entry.title, entry.link
-        return None
+        if feed.entries and feed.entries[0].title and feed.entries[0].link:
+            return feed.entries[0].title, feed.entries[0].link
     except Exception as e:
-        print(f"RSS fetch error for {url}: {e}")
-        return None
+        print(f"feedparser error: {e}")
+    return None
 
-# ==== 各ニュースソース ====
 def fetch_arxiv():
     return fetch_rss("http://export.arxiv.org/rss/cs.AI")
 
 def fetch_reuters():
-    return fetch_rss("https://www.reutersagency.com/feed/?best-topics=top-news&post_type=best")
+    rss_result = fetch_rss("http://feeds.reuters.com/reuters/topNews")
+    if rss_result:
+        return rss_result
+
+    # fallback: scrape from Reuters
+    try:
+        res = requests.get("https://www.reuters.com", timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        article = soup.select_one("article a")
+        if article:
+            title = article.get_text(strip=True)
+            link = "https://www.reuters.com" + article.get("href")
+            return title, link
+    except Exception as e:
+        print(f"Reuters fallback error: {e}")
+    return None
 
 def fetch_bbc():
     return fetch_rss("http://feeds.bbci.co.uk/news/world/rss.xml")
@@ -68,21 +82,34 @@ def fetch_nhk():
             link = "https://www3.nhk.or.jp" + headline.get("href")
             return title, link
     except Exception as e:
-        print(f"NHK fetch error: {e}")
+        print(f"NHK error: {e}")
     return None
 
 def fetch_toyokeizai():
-    return fetch_rss("https://toyokeizai.net/list/feed/rss")
+    # RSS first
+    rss_result = fetch_rss("https://toyokeizai.net/list/feed/rss")
+    if rss_result:
+        return rss_result
 
-# ==== 定期実行タスク ====
+    # fallback: scrape from top page
+    try:
+        res = requests.get("https://toyokeizai.net/", timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+        article = soup.select_one("div.article-body a")
+        if article:
+            title = article.get_text(strip=True)
+            link = "https://toyokeizai.net" + article.get("href")
+            return title, link
+    except Exception as e:
+        print(f"Toyokeizai fallback error: {e}")
+    return None
+
+# ==== タスクループ ====
 @tasks.loop(minutes=60)
 async def fetch_and_post_news():
     await bot.wait_until_ready()
     now = datetime.now().strftime("%H:%M")
     channel = bot.get_channel(CHANNEL_ID)
-    if not channel:
-        print("❌ チャンネルが見つかりません")
-        return
 
     sources = [
         ("🧠 arxiv", fetch_arxiv),
@@ -106,15 +133,15 @@ async def fetch_and_post_news():
 # ==== 起動イベント ====
 @bot.event
 async def on_ready():
-    print(f"✅ Logged in as {bot.user}")
-    if not fetch_and_post_news.is_running():
-        fetch_and_post_news.start()
+    print(f"Logged in as {bot.user}")
+    fetch_and_post_news.start()
 
 # ==== 実行 ====
 if TOKEN and CHANNEL_ID:
     bot.run(TOKEN)
 else:
-    print("❌ 環境変数 DISCORD_BOT_TOKEN または DISCORD_CHANNEL_ID が設定されていません")
+    print("環境変数 DISCORD_BOT_TOKEN または DISCORD_CHANNEL_ID が設定されていません")
+
 
 
 
