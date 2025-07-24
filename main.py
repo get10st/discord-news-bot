@@ -86,30 +86,16 @@ def fetch_nhk():
         print(f"NHK error: {e}")
     return None
 
-def fetch_toyokeizai():
-    rss_result = fetch_rss("https://toyokeizai.net/list/feed/rss")
-    if rss_result:
-        return rss_result
-    try:
-        res = requests.get("https://toyokeizai.net/", timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        article = soup.select_one("div.article-body a")
-        if article:
-            title = article.get_text(strip=True)
-            link = "https://toyokeizai.net" + article.get("href")
-            return title, link
-    except Exception as e:
-        print(f"Toyokeizai fallback error: {e}")
-    return None
+def fetch_nikkei():
+    return fetch_rss("https://www.nikkei.com/rss/newstopics/main.xml")
 
 # ==== 時間別投稿スケジュール ====
 schedule = {
-    9: [("📊 toyokeizai", fetch_toyokeizai)],
+    9: [("📈 日経新聞", fetch_nikkei)],
     13: [("🌍 BBC", fetch_bbc)],
-    15: [("📊 toyokeizai", fetch_toyokeizai)],
     17: [("🗞 CNN", fetch_cnn)],
     18: [("🧠 arxiv", fetch_arxiv)],
-    21: [("📰 reuters", fetch_reuters)]
+    21: [("📰 Reuters", fetch_reuters)]
 }
 
 # ==== タスクループ ====
@@ -121,15 +107,16 @@ async def fetch_and_post_news():
     current_time = now.strftime("%H:%M")
     channel = bot.get_channel(CHANNEL_ID)
 
-    # NHKは毎回取得
-    try:
-        news = fetch_nhk()
-        if news:
-            await post_news(f"📺 NHK 最新記事（{current_time}）", news[1], f"• {news[0]}", channel)
-        else:
-            await channel.send("❌ NHKのニュース取得失敗")
-    except Exception as e:
-        await channel.send(f"❌ NHKの取得中にエラーが発生しました: {str(e)}")
+    # NHKは毎回取得（時間外はスキップ）
+    if hour in schedule:
+        try:
+            news = fetch_nhk()
+            if news:
+                await post_news(f"📺 NHK 最新記事（{current_time}）", news[1], f"• {news[0]}", channel)
+            else:
+                await channel.send("❌ NHKのニュース取得失敗")
+        except Exception as e:
+            await channel.send(f"❌ NHKの取得中にエラーが発生しました: {str(e)}")
 
     # 時間帯に応じた媒体のみ投稿
     if hour in schedule:
@@ -154,6 +141,7 @@ if TOKEN and CHANNEL_ID:
     bot.run(TOKEN)
 else:
     print("環境変数 DISCORD_BOT_TOKEN または DISCORD_CHANNEL_ID が設定されていません")
+
 
 
 
