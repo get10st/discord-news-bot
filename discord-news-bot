@@ -1,0 +1,5 @@
+discord-news-bot/
+├── main.py       ← あなたのBotコード
+├── requirements.txt
+├── Procfile
+└── runtime.txt（任意）
